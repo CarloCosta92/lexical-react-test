@@ -1,0 +1,20 @@
+.editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-input {
+  min-height: 200px;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.editor-placeholder {
+  color: #9aa0a6;
+  pointer-events: none;
+  margin-left: 4px;
+}
