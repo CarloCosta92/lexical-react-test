@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -7,7 +7,6 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
-
 import {
   $getSelection,
   $isRangeSelection,
@@ -17,9 +16,7 @@ import {
   $getRoot,
   $createParagraphNode,
 } from "lexical";
-
 import { $setBlocksType } from "@lexical/selection";
-
 import { $getNearestNodeOfType } from "@lexical/utils";
 import { HeadingNode, $createHeadingNode } from "@lexical/rich-text";
 import {
@@ -30,34 +27,56 @@ import {
   REMOVE_LIST_COMMAND,
 } from "@lexical/list";
 import { $generateHtmlFromNodes } from "@lexical/html";
-
 import {
   Bold,
   Italic,
   Underline,
-  Type,
   List as ListIcon,
   ListOrdered,
   RotateCcw,
   RotateCw,
 } from "lucide-react";
 
-// =======================
-// TOOLBAR
-// =======================
+// CONSTANTS
+
+const INITIAL_FORMATS = {
+  bold: false,
+  italic: false,
+  underline: false,
+  heading: "paragraph",
+  bullet: false,
+  number: false,
+};
+
+const HEADING_OPTIONS = [
+  { value: "paragraph", label: "Paragraph" },
+  { value: "h1", label: "Heading 1" },
+  { value: "h2", label: "Heading 2" },
+];
+
+// TOOLBAR BUTTON
+
+const ToolbarButton = ({ active, onClick, onMouseDown, children, title }) => (
+  <button
+    className={`btn btn-sm ${active ? "btn-primary" : "btn-outline-secondary"}`}
+    onClick={onClick}
+    onMouseDown={onMouseDown}
+    title={title}
+    aria-pressed={active}
+  >
+    {children}
+  </button>
+);
+
+const ToolbarDivider = () => <div className="vr" />;
+
+// TOOLBAR PLUGIN
+
 function ToolbarPlugin() {
   const [editor] = useLexicalComposerContext();
+  const [formats, setFormats] = useState(INITIAL_FORMATS);
 
-  const [formats, setFormats] = useState({
-    bold: false,
-    italic: false,
-    underline: false,
-    heading: "paragraph",
-    bullet: false,
-    number: false,
-  });
-
-  // 🔄 Sync selection → toolbar
+  // Sync selection state to toolbar
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
       editorState.read(() => {
@@ -65,7 +84,6 @@ function ToolbarPlugin() {
         if (!$isRangeSelection(selection)) return;
 
         const anchor = selection.anchor.getNode();
-
         const heading = $getNearestNodeOfType(anchor, HeadingNode);
         const list = $getNearestNodeOfType(anchor, ListNode);
 
@@ -81,134 +99,165 @@ function ToolbarPlugin() {
     });
   }, [editor]);
 
-  // 🧱 Heading
-  const setHeading = (type) => {
-    editor.update(() => {
-      const selection = $getSelection();
-      if (!$isRangeSelection(selection)) return;
+  // Handlers
+  const handleUndo = useCallback(
+    () => editor.dispatchCommand(UNDO_COMMAND),
+    [editor]
+  );
 
-      if (type === "paragraph") {
-        $setBlocksType(selection, () => $createParagraphNode());
-      } else {
-        $setBlocksType(selection, () => $createHeadingNode(type));
-      }
-    });
-  };
+  const handleRedo = useCallback(
+    () => editor.dispatchCommand(REDO_COMMAND),
+    [editor]
+  );
 
-  // 📋 Liste
-  const toggleBullet = () =>
-    editor.dispatchCommand(
-      formats.bullet ? REMOVE_LIST_COMMAND : INSERT_UNORDERED_LIST_COMMAND
-    );
+  const handleFormat = useCallback(
+    (format) => editor.dispatchCommand(FORMAT_TEXT_COMMAND, format),
+    [editor]
+  );
 
-  const toggleNumber = () =>
-    editor.dispatchCommand(
-      formats.number ? REMOVE_LIST_COMMAND : INSERT_ORDERED_LIST_COMMAND
-    );
+  const handleHeadingChange = useCallback(
+    (type) => {
+      editor.update(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) return;
 
-  const btn = (active) =>
-    `btn btn-sm ${active ? "btn-primary" : "btn-outline-secondary"}`;
+        const createNode =
+          type === "paragraph"
+            ? () => $createParagraphNode()
+            : () => $createHeadingNode(type);
+
+        $setBlocksType(selection, createNode);
+      });
+    },
+    [editor]
+  );
+
+  const handleToggleList = useCallback(
+    (listType) => {
+      const isActive = listType === "bullet" ? formats.bullet : formats.number;
+      const command = isActive
+        ? REMOVE_LIST_COMMAND
+        : listType === "bullet"
+        ? INSERT_UNORDERED_LIST_COMMAND
+        : INSERT_ORDERED_LIST_COMMAND;
+
+      editor.dispatchCommand(command);
+    },
+    [editor, formats.bullet, formats.number]
+  );
+
+  const preventMouseDown = (e) => e.preventDefault();
 
   return (
     <div className="d-flex gap-2 mb-2 p-2 border rounded bg-light flex-wrap">
-      {/* Undo / Redo */}
-      <button
-        className={btn()}
-        onClick={() => editor.dispatchCommand(UNDO_COMMAND)}
-      >
+      {/* History controls */}
+      <ToolbarButton onClick={handleUndo} title="Annulla">
         <RotateCcw size={16} />
-      </button>
-      <button
-        className={btn()}
-        onClick={() => editor.dispatchCommand(REDO_COMMAND)}
-      >
+      </ToolbarButton>
+      <ToolbarButton onClick={handleRedo} title="Ripeti">
         <RotateCw size={16} />
-      </button>
+      </ToolbarButton>
 
-      <div className="vr" />
+      <ToolbarDivider />
 
-      {/* Inline */}
-      <button
-        className={btn(formats.bold)}
-        onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold")}
+      {/* Text formatting */}
+      <ToolbarButton
+        active={formats.bold}
+        onClick={() => handleFormat("bold")}
+        title="Grassetto"
       >
         <Bold size={16} />
-      </button>
-      <button
-        className={btn(formats.italic)}
-        onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic")}
+      </ToolbarButton>
+      <ToolbarButton
+        active={formats.italic}
+        onClick={() => handleFormat("italic")}
+        title="Corsivo"
       >
         <Italic size={16} />
-      </button>
-      <button
-        className={btn(formats.underline)}
-        onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline")}
+      </ToolbarButton>
+      <ToolbarButton
+        active={formats.underline}
+        onClick={() => handleFormat("underline")}
+        title="Sottolineato"
       >
         <Underline size={16} />
-      </button>
+      </ToolbarButton>
 
-      <div className="vr" />
+      <ToolbarDivider />
 
-      {/* Heading dropdown */}
+      {/* Heading selector */}
       <select
         className="form-select form-select-sm"
         style={{ width: 140 }}
         value={formats.heading}
-        onChange={(e) => setHeading(e.target.value)}
+        onChange={(e) => handleHeadingChange(e.target.value)}
+        aria-label="Seleziona tipo di paragrafo"
       >
-        <option value="paragraph">Paragraph</option>
-        <option value="h1">Heading 1</option>
-        <option value="h2">Heading 2</option>
+        {HEADING_OPTIONS.map(({ value, label }) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
       </select>
 
-      <div className="vr" />
+      <ToolbarDivider />
 
-      {/* Lists */}
-      <button
-        className={btn(formats.bullet)}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={toggleBullet}
+      {/* List controls */}
+      <ToolbarButton
+        active={formats.bullet}
+        onClick={() => handleToggleList("bullet")}
+        onMouseDown={preventMouseDown}
+        title="Lista puntata"
       >
         <ListIcon size={16} />
-      </button>
-
-      <button
-        className={btn(formats.number)}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={toggleNumber}
+      </ToolbarButton>
+      <ToolbarButton
+        active={formats.number}
+        onClick={() => handleToggleList("number")}
+        onMouseDown={preventMouseDown}
+        title="Lista numerata"
       >
         <ListOrdered size={16} />
-      </button>
+      </ToolbarButton>
     </div>
   );
 }
 
-// =======================
-// CLEAR / SYNC
-// =======================
+// CLEAR EDITOR PLUGIN
+
 function ClearEditorPlugin({ value }) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    if (value !== "") return;
-    editor.update(() => $getRoot().clear());
+    if (value === "") {
+      editor.update(() => $getRoot().clear());
+    }
   }, [value, editor]);
 
   return null;
 }
 
-// =======================
-// EDITOR
-// =======================
+// MAIN EDITOR COMPONENT
+
 export default function TrainingDescriptionEditor({ value, onChange }) {
-  const config = {
+  const handleChange = useCallback(
+    (editorState, editor) => {
+      editorState.read(() => {
+        const html = $generateHtmlFromNodes(editor);
+        onChange(html);
+      });
+    },
+    [onChange]
+  );
+
+  const editorConfig = {
     namespace: "training-editor",
-    onError: console.error,
+    onError: (error) => console.error("Lexical Error:", error),
     nodes: [HeadingNode, ListNode, ListItemNode],
   };
 
   return (
-    <LexicalComposer initialConfig={config}>
+    <LexicalComposer initialConfig={editorConfig}>
       <ToolbarPlugin />
       <ClearEditorPlugin value={value} />
 
@@ -222,13 +271,7 @@ export default function TrainingDescriptionEditor({ value, onChange }) {
         />
         <HistoryPlugin />
         <ListPlugin />
-        <OnChangePlugin
-          onChange={(editorState, editor) => {
-            editorState.read(() => {
-              onChange($generateHtmlFromNodes(editor));
-            });
-          }}
-        />
+        <OnChangePlugin onChange={handleChange} />
       </div>
     </LexicalComposer>
   );
