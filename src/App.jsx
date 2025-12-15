@@ -25,14 +25,6 @@ export default function App() {
           Clear
         </button>
       </div>
-      <div className="mt-3">
-        <h5>Anteprima renderizzata:</h5>
-        <div
-          className="p-3"
-          style={{ background: "#fafafa" }}
-          dangerouslySetInnerHTML={{ __html: desc }}
-        />
-      </div>
     </div>
   );
 }
